@@ -270,7 +270,7 @@ def menu_management_page():
                     menu_data[t] = [itm for itm in menu_data[t] if itm["id"] != item["id"]]
                     save_json(MENU_FILE, menu_data)
                     st.success("Item deleted.")
-                   st.rerun() 
+                    st.rerun() 
 def table_management_page():
     st.header("🪑 Table Management")
     tables = load_json(TABLES_FILE) or []
@@ -489,7 +489,7 @@ def order_management_page():
                             o['status'] = new_status
                             save_json(ORDERS_FILE, orders_data)
                             st.success(f"Order {order['id']} status updated to {new_status}")
-                           st.rerun() 
+                            st.rerun() 
                     
 def sales_analytics_page():
     st.header("📊 Sales Analytics")
@@ -568,7 +568,7 @@ def settings_page():
             }
             save_json(SETTINGS_FILE, new_settings)
             st.success("Settings saved")
-           st.rerun() 
+            st.rerun() 
 
     st.subheader("Data Management")
     col1, col2, col3 = st.columns(3)
@@ -590,7 +590,7 @@ def settings_page():
                     save_json(USERS_FILE, [{"username": "admin", "password": "admin123", "role": "admin"},
                                            {"username": "staff", "password": "staff123", "role": "staff"}])
                     st.success("All data cleared")
-                   st.rerun() 
+                    st.rerun() 
 
 # --- Main driver function ---
 def main():
@@ -618,7 +618,8 @@ def main():
         st.session_state['logged_in'] = False
         st.session_state['user'] = None
         st.session_state['cart'] = []
-        st.experimental_rerun()
+        st.rerun() 
+
 
     elif choice == "Dashboard":
         dashboard_page()
@@ -649,6 +650,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
