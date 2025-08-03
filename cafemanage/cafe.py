@@ -136,7 +136,7 @@ def login_page():
             st.session_state['logged_in'] = True
             st.session_state['user'] = user
             st.success(f"Welcome, {user['username']}!")
-           
+            st.experimental_rerun()
         else:
             st.error("Invalid username or password")
 
@@ -650,4 +650,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
