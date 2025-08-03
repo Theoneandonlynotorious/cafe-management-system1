@@ -221,7 +221,7 @@ def menu_management_page():
                     menu_data[item_type].append(new_item)
                     save_json(MENU_FILE, menu_data)
                     st.success(f"Added {item_name} to menu!")
-                    st.experimental_rerun()
+                    #st.experimental_rerun()
                 else:
                     st.error("Please fill all fields.")
 
@@ -650,5 +650,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
