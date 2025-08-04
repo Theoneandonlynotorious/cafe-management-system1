@@ -1032,7 +1032,7 @@ def main():
     # Check if this is a customer menu request
     try:
         # Handle different ways Streamlit might store query params
-        query_params = st.experimental_get_query_params() if hasattr(st, 'experimental_get_query_params') else {}
+        query_params = st.query_params if hasattr(st, 'query_params') else {}
         if not query_params:
             # Try newer method
             try:
@@ -1104,3 +1104,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
