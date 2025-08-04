@@ -122,6 +122,10 @@ if 'cart' not in st.session_state:
     st.session_state['cart'] = []
 if 'discount' not in st.session_state:
     st.session_state['discount'] = 0.0
+if 'customer_cart' not in st.session_state:
+    st.session_state['customer_cart'] = []
+if 'customer_info' not in st.session_state:
+    st.session_state['customer_info'] = {}
 
 # --- Authentication Page ---
 
@@ -263,7 +267,7 @@ def menu_management_page():
                             })
                             save_json(MENU_FILE, menu_data)
                             st.success("Item updated.")
-                            st.experimental_rerun()
+                            st.rerun()
             with col2:
                 if st.form_submit_button("Delete Item"):
                     t = item["_type"]
@@ -423,26 +427,11 @@ def order_management_page():
 
                     st.success(f"Order placed! ID: {new_order['id']}")
 
-                    # === PDF & EMAIL BLOCK ===
-                    from bill_mail import build_pdf, send_email
-                    pdf_bytes = build_pdf(new_order)
-
-                    # 1. Staff download
-                    st.download_button(
-                        label="Download PDF Bill",
-                        data=pdf_bytes,
-                        file_name=f"{new_order['id']}.pdf",
-                        mime="application/pdf"
-                    )
-
-                    # 2. Customer e-mail
-                    if customer_email.strip():
-                        try:
-                            send_email(customer_email.strip(), new_order, pdf_bytes)
-                            st.success(f"Bill e-mailed to {customer_email}")
-                        except Exception as e:
-                            st.error(f"Could not send e-mail: {e}")
-                    # === END PDF & EMAIL BLOCK ===
+                    # Optional: Add PDF generation and email functionality here
+                    # from bill_mail import build_pdf, send_email
+                    # pdf_bytes = build_pdf(new_order)
+                    # if customer_email.strip():
+                    #     send_email(customer_email.strip(), new_order, pdf_bytes)
 
                     st.session_state.cart = []
                     st.rerun() 
@@ -543,9 +532,23 @@ def qr_generator_page():
     st.header("📱 QR Code Generator")
 
     settings = load_json(SETTINGS_FILE) or {}
+    
+    # Get the current app URL from Streamlit
+    try:
+        current_url = st.get_option("server.baseUrlPath") or ""
+        if not current_url:
+            # Fallback to localhost for development
+            current_url = "http://localhost:8501"
+    except:
+        current_url = "http://localhost:8501"
+    
+    # Default base URL for menu
+    default_menu_url = f"{current_url}/?p=menu"
+    
     base_url = st.text_input(
         "Base menu URL for QR codes",
-        value=settings.get('barcode_url', 'https://mycafe.com/menu')
+        value=settings.get('barcode_url', default_menu_url),
+        help="This URL will be encoded in the QR codes. Customers will scan this to access your menu."
     ).rstrip("/")
 
     # ----------------------------------------------------------
@@ -593,8 +596,10 @@ def qr_generator_page():
             with col1:
                 st.image(qr_buff, width=150)
             with col2:
+                st.write(f"**Table {table_no} QR Code**")
+                st.write(f"URL: {table_url}")
                 st.download_button(
-                    label=f"⬇️ Table {table_no}",
+                    label=f"⬇️ Download Table {table_no} QR",
                     data=qr_buff.getvalue(),
                     file_name=file_name,
                     mime="image/png",
@@ -616,6 +621,7 @@ def qr_generator_page():
     # persist the base url back to settings
     settings['barcode_url'] = base_url
     save_json(SETTINGS_FILE, settings)
+
 def settings_page():
     st.header("⚙️ Settings")
 
@@ -660,21 +666,330 @@ def settings_page():
                     st.success("All data cleared")
                     st.rerun() 
 
+# ------------------------------------------------------------------
+#  Customer menu (no login) - Enhanced Version
+# ------------------------------------------------------------------
+def customer_menu():
+    st.set_page_config(page_title="Our Menu", page_icon="☕", layout="wide")
+    
+    # Hide Streamlit default elements for cleaner customer experience
+    st.markdown("""
+    <style>
+    #MainMenu, footer, header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    .stDecoration {display: none;}
+    
+    /* Custom styling for better mobile experience */
+    .main-header {
+        text-align: center;
+        padding: 1rem;
+        background: linear-gradient(135deg, #8B4513, #D2691E);
+        color: white;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+    }
+    
+    .menu-item {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+        background: white;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .item-name {
+        font-weight: bold;
+        font-size: 1.2em;
+        color: #333;
+    }
+    
+    .item-price {
+        color: #8B4513;
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+    
+    .item-description {
+        color: #666;
+        font-style: italic;
+        margin: 0.5rem 0;
+    }
+    
+    .category-header {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+        border-left: 4px solid #8B4513;
+    }
+    
+    .cart-summary {
+        background: #f8f9fa;
+        padding: 1rem;
+        border-radius: 10px;
+        margin: 1rem 0;
+        border: 2px solid #8B4513;
+    }
+    
+    .order-button {
+        background: #8B4513;
+        color: white;
+        border: none;
+        padding: 1rem 2rem;
+        border-radius: 25px;
+        font-size: 1.1em;
+        width: 100%;
+        margin: 1rem 0;
+    }
+    </style>""", unsafe_allow_html=True)
+
+    menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
+    settings = load_json(SETTINGS_FILE) or {}
+    table = st.query_params.get("table", [None])[0]
+
+    # Header
+    cafe_name = settings.get('cafe_name', 'Our Cafe')
+    st.markdown(f"""
+    <div class="main-header">
+        <h1>☕ {cafe_name}</h1>
+        <p>Welcome to our digital menu!</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if table:
+        st.success(f"🪑 **Ordering for Table {table}**")
+        st.session_state.customer_info['table_number'] = table
+
+    # Customer Information Form
+    with st.expander("📝 Your Information", expanded=not bool(st.session_state.customer_info.get('name'))):
+        col1, col2 = st.columns(2)
+        with col1:
+            customer_name = st.text_input("Your Name", 
+                                        value=st.session_state.customer_info.get('name', ''),
+                                        placeholder="Enter your name")
+        with col2:
+            customer_phone = st.text_input("Phone Number (Optional)", 
+                                         value=st.session_state.customer_info.get('phone', ''),
+                                         placeholder="Your phone number")
+        
+        if st.button("Save Information"):
+            if customer_name:
+                st.session_state.customer_info.update({
+                    'name': customer_name,
+                    'phone': customer_phone
+                })
+                st.success("Information saved!")
+                st.rerun()
+            else:
+                st.error("Please enter your name")
+
+    # Display menu by categories
+    all_items = []
+    for section_name, items in menu.items():
+        for item in items:
+            if item.get('available', True) and item.get('inventory', 0) > 0:
+                item['section'] = section_name
+                all_items.append(item)
+
+    if not all_items:
+        st.warning("Sorry, no items are currently available.")
+        return
+
+    # Group items by category for better organization
+    categories = {}
+    for item in all_items:
+        cat = item.get('category', 'Other')
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(item)
+
+    # Display menu items
+    for category, items in categories.items():
+        st.markdown(f"""
+        <div class="category-header">
+            <h2>🍽️ {category}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        for item in items:
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"""
+                <div class="menu-item">
+                    <div class="item-name">{item['name']}</div>
+                    <div class="item-description">{item.get('description', '')}</div>
+                    <div class="item-price">₹{item['price']:.2f}</div>
+                    <small>Available: {item.get('inventory', 'N/A')} items</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                # Quantity selector
+                max_qty = min(10, item.get('inventory', 10))
+                qty = st.number_input(
+                    f"Qty", 
+                    min_value=0, 
+                    max_value=max_qty, 
+                    value=0,
+                    key=f"customer_qty_{item['id']}"
+                )
+                
+                if st.button(f"Add", key=f"customer_add_{item['id']}"):
+                    if qty > 0:
+                        # Check if item already in cart
+                        existing_item = None
+                        for cart_item in st.session_state.customer_cart:
+                            if cart_item['id'] == item['id']:
+                                existing_item = cart_item
+                                break
+                        
+                        if existing_item:
+                            existing_item['quantity'] += qty
+                            existing_item['subtotal'] = existing_item['quantity'] * existing_item['price']
+                        else:
+                            cart_item = {
+                                'id': item['id'],
+                                'name': item['name'],
+                                'price': item['price'],
+                                'quantity': qty,
+                                'subtotal': item['price'] * qty
+                            }
+                            st.session_state.customer_cart.append(cart_item)
+                        
+                        st.success(f"Added {qty}x {item['name']} to cart!")
+                        st.rerun()
+                    else:
+                        st.warning("Please select a quantity first")
+
+    # Shopping Cart Display
+    if st.session_state.customer_cart:
+        st.markdown("---")
+        st.markdown("""
+        <div class="cart-summary">
+            <h3>🛒 Your Order</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        cart_total = 0
+        items_to_remove = []
+        
+        for idx, cart_item in enumerate(st.session_state.customer_cart):
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            
+            with col1:
+                st.write(f"**{cart_item['name']}**")
+            with col2:
+                st.write(f"₹{cart_item['price']:.2f}")
+            with col3:
+                st.write(f"x{cart_item['quantity']}")
+            with col4:
+                if st.button("🗑️", key=f"remove_customer_{idx}"):
+                    items_to_remove.append(idx)
+            
+            cart_total += cart_item['subtotal']
+        
+        # Remove items from cart
+        for idx in reversed(items_to_remove):
+            st.session_state.customer_cart.pop(idx)
+        
+        if items_to_remove:
+            st.rerun()
+        
+        # Calculate totals
+        settings = load_json(SETTINGS_FILE) or {}
+        tax_rate = settings.get('tax_rate', 0.10)
+        service_charge = settings.get('service_charge', 0.05)
+        
+        tax_amount = cart_total * tax_rate
+        service_amount = cart_total * service_charge
+        final_total = cart_total + tax_amount + service_amount
+        
+        # Order summary
+        st.markdown(f"""
+        <div class="cart-summary">
+            <p><strong>Subtotal: ₹{cart_total:.2f}</strong></p>
+            <p>Tax ({tax_rate*100:.0f}%): ₹{tax_amount:.2f}</p>
+            <p>Service Charge ({service_charge*100:.0f}%): ₹{service_amount:.2f}</p>
+            <h3>Total: ₹{final_total:.2f}</h3>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Order placement
+        if st.session_state.customer_info.get('name'):
+            if st.button("🍽️ Place Order", key="place_customer_order"):
+                # Create order
+                orders_data = load_json(ORDERS_FILE) or []
+                menu_data = load_json(MENU_FILE) or {"beverages": [], "food": []}
+                
+                # Update inventory
+                for cart_item in st.session_state.customer_cart:
+                    for section in ["beverages", "food"]:
+                        for menu_item in menu_data.get(section, []):
+                            if menu_item["id"] == cart_item["id"]:
+                                menu_item["inventory"] = max(0, menu_item.get("inventory", 0) - cart_item["quantity"])
+                
+                save_json(MENU_FILE, menu_data)
+                
+                new_order = {
+                    "id": f"ORD{len(orders_data) + 1:05d}",
+                    "customer_name": st.session_state.customer_info['name'],
+                    "customer_phone": st.session_state.customer_info.get('phone', ''),
+                    "table_number": st.session_state.customer_info.get('table_number', ''),
+                    "items": st.session_state.customer_cart.copy(),
+                    "subtotal": cart_total,
+                    "discount": 0,
+                    "tax": tax_amount,
+                    "service_charge": service_amount,
+                    "total": final_total,
+                    "date": str(date.today()),
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "timestamp": datetime.now().isoformat(),
+                    "status": "Pending",
+                    "payment_status": "Unpaid",
+                    "order_type": "Customer Self-Order"
+                }
+                
+                orders_data.append(new_order)
+                save_json(ORDERS_FILE, orders_data)
+                
+                st.success(f"🎉 Order placed successfully! Order ID: **{new_order['id']}**")
+                st.info("Please show this Order ID to the staff for payment and collection.")
+                
+                # Clear cart and customer info for next customer
+                st.session_state.customer_cart = []
+                st.session_state.customer_info = {}
+                if table:
+                    st.session_state.customer_info['table_number'] = table
+                
+                # Auto-refresh after 3 seconds
+                import time
+                with st.empty():
+                    for i in range(3, 0, -1):
+                        st.info(f"Page will refresh in {i} seconds...")
+                        time.sleep(1)
+                st.rerun()
+        else:
+            st.warning("Please enter your information above before placing the order.")
+            
+        # Clear cart button
+        if st.button("🗑️ Clear Cart"):
+            st.session_state.customer_cart = []
+            st.rerun()
+    else:
+        st.info("Your cart is empty. Add some items from the menu above!")
+
 # --- Main driver function ---
-# ------------------------------------------------------------------
-#  NEW main()  (two-in-one app)
-# ------------------------------------------------------------------
-#  One-file, two-in-one app
-# ------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="Cafe System", page_icon="☕", layout="centered")
 
-    # public menu route
-    if st.query_params.get("p", [""])[0] == "menu":
+    # Check if this is a customer menu request
+    if st.query_params.get("p", [None])[0] == "menu":
         customer_menu()
         return
 
-    # staff back-office
+    # Staff back-office login and management
     if not st.session_state.get("logged_in", False):
         login_page()
         return
@@ -705,49 +1020,8 @@ def main():
         qr_generator_page()
     elif choice == "Settings" and user['role'] == 'admin':
         settings_page()
-# ------------------------------------------------------------------
-#  Customer menu (no login)
-# ------------------------------------------------------------------
-def customer_menu():
-    st.set_page_config(page_title="Our Menu", page_icon="☕")
-    st.markdown("""
-    <style>
-    #MainMenu, footer, header {visibility: hidden;}
-    </style>""", unsafe_allow_html=True)
-
-    menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
-    table = st.query_params.get("table", [None])[0]
-
-    if table:
-        st.info(f"Ordering for **Table {table}**")
-    st.markdown("---")
-
-    for section, items in menu.items():
-        st.header(section.capitalize())
-        for itm in items:
-            if not itm.get("available", True):
-                continue
-            inv = itm.get("inventory", None)
-            inv_txt = f"({inv} left)" if inv is not None else ""
-            cols = st.columns([3, 1])
-            cols[0].markdown(
-                f"**{itm['name']}**<br><small>{itm.get('description','')}</small><br>₹{itm['price']:.2f} {inv_txt}",
-                unsafe_allow_html=True,
-            )
-            cols[1].button("Add", key=f"{section}_{itm['id']}")
+    else:
+        st.error("You don't have permission to access this page.")
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
