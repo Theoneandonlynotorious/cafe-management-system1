@@ -664,86 +664,62 @@ def settings_page():
 # ------------------------------------------------------------------
 #  NEW main()  (two-in-one app)
 # ------------------------------------------------------------------
+#  One-file, two-in-one app
+# ------------------------------------------------------------------
 def main():
-    st.set_page_config(page_title="Cafe Management System", page_icon="☕", layout="wide")
+    st.set_page_config(page_title="Cafe System", page_icon="☕", layout="centered")
 
-    # ---------- public menu ----------
-    path = st.query_params.get("p", [""])[0]
-    if path == "menu":
-        customer_menu_page()
+    # public menu route
+    if st.query_params.get("p", [""])[0] == "menu":
+        customer_menu()
         return
-    # ---------- staff back-office ----------
-    if not st.session_state['logged_in']:
+
+    # staff back-office
+    if not st.session_state.get("logged_in", False):
         login_page()
         return
 
     user = st.session_state['user']
     st.sidebar.title(f"Logged in as: {user['username']} ({user['role']})")
-    menu_options = [
-        "Dashboard",
-        "Menu Management",
-        "Order Management",
-        "Sales Analytics",
-        "Table Management",
-        "QR Code Generator",
-        "Settings",
-        "Logout"
-    ]
-    choice = st.sidebar.selectbox("Navigation", menu_options)
+    choice = st.sidebar.selectbox("Navigation", [
+        "Dashboard", "Menu Management", "Order Management", "Sales Analytics",
+        "Table Management", "QR Code Generator", "Settings", "Logout"
+    ])
 
     if choice == "Logout":
         st.session_state['logged_in'] = False
         st.session_state['user'] = None
         st.session_state['cart'] = []
         st.rerun()
-
     elif choice == "Dashboard":
         dashboard_page()
-    elif choice == "Menu Management":
-        if user['role'] == 'admin':
-            menu_management_page()
-        else:
-            st.warning("Only admin can access menu management.")
+    elif choice == "Menu Management" and user['role'] == 'admin':
+        menu_management_page()
     elif choice == "Order Management":
         order_management_page()
-    elif choice == "Sales Analytics":
-        if user['role'] == 'admin':
-            sales_analytics_page()
-        else:
-            st.warning("Only admin can access sales analytics.")
-    elif choice == "Table Management":
-        if user['role'] == 'admin' or user['role'] == 'staff':
-            table_management_page()
-        else:
-            st.warning("Access denied.")
+    elif choice == "Sales Analytics" and user['role'] == 'admin':
+        sales_analytics_page()
+    elif choice == "Table Management" and user['role'] in ('admin', 'staff'):
+        table_management_page()
     elif choice == "QR Code Generator":
         qr_generator_page()
-    elif choice == "Settings":
-        if user['role'] == 'admin':
-            settings_page()
-        else:
-            st.warning("Only admin can access settings.")
-
+    elif choice == "Settings" and user['role'] == 'admin':
+        settings_page()
 # ------------------------------------------------------------------
-#  Customer menu page  (no login)
+#  Customer menu (no login)
 # ------------------------------------------------------------------
-def customer_menu_page():
-    st.set_page_config(page_title="Our Menu", page_icon="☕", layout="centered")
-    hide_style = """
+def customer_menu():
+    st.set_page_config(page_title="Our Menu", page_icon="☕")
+    st.markdown("""
     <style>
     #MainMenu, footer, header {visibility: hidden;}
-    </style>
-    """
-    st.markdown(hide_style, unsafe_allow_html=True)
+    </style>""", unsafe_allow_html=True)
 
     menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
-    table = st.query_params.get("table", [""])[0]
+    table = st.query_params.get("table", [None])[0]
 
     if table:
-        st.info(f"You are ordering for **Table {table}**")
-    else:
-        st.info("Browse our menu below")
-
+        st.info(f"Ordering for **Table {table}**")
     st.markdown("---")
 
     for section, items in menu.items():
@@ -754,12 +730,15 @@ def customer_menu_page():
             inv = itm.get("inventory", None)
             inv_txt = f"({inv} left)" if inv is not None else ""
             cols = st.columns([3, 1])
-            cols[0].markdown(f"**{itm['name']}** – {itm.get('description','')}  \n₹{itm['price']:.2f} {inv_txt}")
-            if cols[1].button("Add", key=f"{section}_{itm['id']}"):
-                st.toast(f"Added {itm['name']} to cart (not sent yet)")
+            cols[0].markdown(
+                f"**{itm['name']}**<br><small>{itm.get('description','')}</small><br>₹{itm['price']:.2f} {inv_txt}",
+                unsafe_allow_html=True,
+            )
+            cols[1].button("Add", key=f"{section}_{itm['id']}")
 
 if __name__ == "__main__":
     main()
+
 
 
 
