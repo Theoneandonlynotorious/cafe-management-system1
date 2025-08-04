@@ -649,7 +649,8 @@ def main():
             st.warning("Only admin can access settings.")
 
 if __name__ == "__main__":
-    main()
+    __main__()
+
 
 
 
