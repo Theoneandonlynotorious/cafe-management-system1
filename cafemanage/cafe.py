@@ -668,7 +668,8 @@ def main():
     st.set_page_config(page_title="Cafe Management System", page_icon="☕", layout="wide")
 
     # ---------- public menu ----------
-    if path = st.query_params.get("p", [""])[0] == "menu":
+    path = st.query_params.get("p", [""])[0]
+    if path == "menu":
         customer_menu_page()
         return
     # ---------- staff back-office ----------
@@ -759,6 +760,7 @@ def customer_menu_page():
 
 if __name__ == "__main__":
     main()
+
 
 
 
