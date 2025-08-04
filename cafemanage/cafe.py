@@ -737,7 +737,7 @@ def customer_menu_page():
     st.markdown(hide_style, unsafe_allow_html=True)
 
     menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
-   table = st.query_params.get("table", [""])[0]
+    table = st.query_params.get("table", [""])[0]
 
     if table:
         st.info(f"You are ordering for **Table {table}**")
@@ -760,6 +760,7 @@ def customer_menu_page():
 
 if __name__ == "__main__":
     main()
+
 
 
 
