@@ -661,9 +661,17 @@ def settings_page():
                     st.rerun() 
 
 # --- Main driver function ---
+# ------------------------------------------------------------------
+#  NEW main()  (two-in-one app)
+# ------------------------------------------------------------------
 def main():
     st.set_page_config(page_title="Cafe Management System", page_icon="☕", layout="wide")
 
+    # ---------- public menu ----------
+    if st.experimental_get_query_params().get("p", [""])[0] == "menu":
+        customer_menu_page()
+        return
+    # ---------- staff back-office ----------
     if not st.session_state['logged_in']:
         login_page()
         return
@@ -686,8 +694,7 @@ def main():
         st.session_state['logged_in'] = False
         st.session_state['user'] = None
         st.session_state['cart'] = []
-        st.rerun() 
-
+        st.rerun()
 
     elif choice == "Dashboard":
         dashboard_page()
@@ -716,8 +723,43 @@ def main():
         else:
             st.warning("Only admin can access settings.")
 
+# ------------------------------------------------------------------
+#  Customer menu page  (no login)
+# ------------------------------------------------------------------
+def customer_menu_page():
+    st.set_page_config(page_title="Our Menu", page_icon="☕", layout="centered")
+    hide_style = """
+    <style>
+    #MainMenu, footer, header {visibility: hidden;}
+    </style>
+    """
+    st.markdown(hide_style, unsafe_allow_html=True)
+
+    menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
+    table = st.experimental_get_query_params().get("table", [""])[0]
+
+    if table:
+        st.info(f"You are ordering for **Table {table}**")
+    else:
+        st.info("Browse our menu below")
+
+    st.markdown("---")
+
+    for section, items in menu.items():
+        st.header(section.capitalize())
+        for itm in items:
+            if not itm.get("available", True):
+                continue
+            inv = itm.get("inventory", None)
+            inv_txt = f"({inv} left)" if inv is not None else ""
+            cols = st.columns([3, 1])
+            cols[0].markdown(f"**{itm['name']}** – {itm.get('description','')}  \n₹{itm['price']:.2f} {inv_txt}")
+            if cols[1].button("Add", key=f"{section}_{itm['id']}"):
+                st.toast(f"Added {itm['name']} to cart (not sent yet)")
+
 if __name__ == "__main__":
     main()
+
 
 
 
