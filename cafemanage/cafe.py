@@ -533,12 +533,13 @@ def qr_generator_page():
 
     settings = load_json(SETTINGS_FILE) or {}
     
-    # Get the current app URL from Streamlit
+    # Get the current app URL - for local testing, use localhost
     try:
-        current_url = st.get_option("server.baseUrlPath") or ""
-        if not current_url:
-            # Fallback to localhost for development
-            current_url = "http://localhost:8501"
+        # Try to detect if running locally
+        import socket
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
+        current_url = f"http://localhost:8501"  # Default for Streamlit
     except:
         current_url = "http://localhost:8501"
     
@@ -550,6 +551,19 @@ def qr_generator_page():
         value=settings.get('barcode_url', default_menu_url),
         help="This URL will be encoded in the QR codes. Customers will scan this to access your menu."
     ).rstrip("/")
+    
+    # Show example URLs
+    st.info(f"Main menu URL: {base_url}")
+    st.info(f"Table 1 URL example: {base_url}?table=1")
+
+    # Test button for the menu
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🧪 Test Menu URL"):
+            st.markdown(f"[Click here to test menu]({base_url})")
+    with col2:
+        if st.button("🧪 Test with Table 1"):
+            st.markdown(f"[Click here to test Table 1]({base_url}?table=1)")
 
     # ----------------------------------------------------------
     # 1. Main-menu QR (original behaviour kept)
@@ -746,7 +760,22 @@ def customer_menu():
 
     menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
     settings = load_json(SETTINGS_FILE) or {}
-    table = st.query_params.get("table", [None])[0]
+    
+    # Get table parameter from URL
+    table = None
+    try:
+        # Try different methods to get query params
+        query_params = st.experimental_get_query_params() if hasattr(st, 'experimental_get_query_params') else {}
+        if not query_params:
+            try:
+                query_params = dict(st.query_params)
+            except:
+                query_params = {}
+        
+        table_param = query_params.get("table", [""])[0] if isinstance(query_params.get("table"), list) else query_params.get("table", "")
+        table = table_param if table_param else None
+    except:
+        table = None
 
     # Header
     cafe_name = settings.get('cafe_name', 'Our Cafe')
@@ -759,7 +788,21 @@ def customer_menu():
 
     if table:
         st.success(f"🪑 **Ordering for Table {table}**")
+        if 'customer_info' not in st.session_state:
+            st.session_state.customer_info = {}
         st.session_state.customer_info['table_number'] = table
+
+    # Initialize customer session states if not exists
+    if 'customer_cart' not in st.session_state:
+        st.session_state.customer_cart = []
+    if 'customer_info' not in st.session_state:
+        st.session_state.customer_info = {}
+
+    # Debug info (remove this after testing)
+    st.sidebar.write("Debug Info:")
+    st.sidebar.write(f"Menu items loaded: {len(menu.get('beverages', [])) + len(menu.get('food', []))}")
+    st.sidebar.write(f"Table: {table}")
+    st.sidebar.write(f"Cart items: {len(st.session_state.customer_cart)}")
 
     # Customer Information Form
     with st.expander("📝 Your Information", expanded=not bool(st.session_state.customer_info.get('name'))):
@@ -788,12 +831,13 @@ def customer_menu():
     all_items = []
     for section_name, items in menu.items():
         for item in items:
-            if item.get('available', True) and item.get('inventory', 0) > 0:
+            if item.get('available', True):  # Remove inventory check for testing
                 item['section'] = section_name
                 all_items.append(item)
 
     if not all_items:
         st.warning("Sorry, no items are currently available.")
+        st.write("Menu data:", menu)  # Debug info
         return
 
     # Group items by category for better organization
@@ -813,55 +857,56 @@ def customer_menu():
         """, unsafe_allow_html=True)
         
         for item in items:
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.markdown(f"""
-                <div class="menu-item">
-                    <div class="item-name">{item['name']}</div>
-                    <div class="item-description">{item.get('description', '')}</div>
-                    <div class="item-price">₹{item['price']:.2f}</div>
-                    <small>Available: {item.get('inventory', 'N/A')} items</small>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                # Quantity selector
-                max_qty = min(10, item.get('inventory', 10))
-                qty = st.number_input(
-                    f"Qty", 
-                    min_value=0, 
-                    max_value=max_qty, 
-                    value=0,
-                    key=f"customer_qty_{item['id']}"
-                )
+            with st.container():
+                col1, col2 = st.columns([3, 1])
                 
-                if st.button(f"Add", key=f"customer_add_{item['id']}"):
-                    if qty > 0:
-                        # Check if item already in cart
-                        existing_item = None
-                        for cart_item in st.session_state.customer_cart:
-                            if cart_item['id'] == item['id']:
-                                existing_item = cart_item
-                                break
-                        
-                        if existing_item:
-                            existing_item['quantity'] += qty
-                            existing_item['subtotal'] = existing_item['quantity'] * existing_item['price']
+                with col1:
+                    st.markdown(f"""
+                    <div class="menu-item">
+                        <div class="item-name">{item['name']}</div>
+                        <div class="item-description">{item.get('description', '')}</div>
+                        <div class="item-price">₹{item['price']:.2f}</div>
+                        <small>Available: {item.get('inventory', 'Unlimited')} items</small>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    # Quantity selector
+                    max_qty = min(10, item.get('inventory', 10))
+                    qty = st.number_input(
+                        f"Qty", 
+                        min_value=0, 
+                        max_value=max_qty, 
+                        value=0,
+                        key=f"customer_qty_{item['id']}"
+                    )
+                    
+                    if st.button(f"Add to Cart", key=f"customer_add_{item['id']}"):
+                        if qty > 0:
+                            # Check if item already in cart
+                            existing_item = None
+                            for cart_item in st.session_state.customer_cart:
+                                if cart_item['id'] == item['id']:
+                                    existing_item = cart_item
+                                    break
+                            
+                            if existing_item:
+                                existing_item['quantity'] += qty
+                                existing_item['subtotal'] = existing_item['quantity'] * existing_item['price']
+                            else:
+                                cart_item = {
+                                    'id': item['id'],
+                                    'name': item['name'],
+                                    'price': item['price'],
+                                    'quantity': qty,
+                                    'subtotal': item['price'] * qty
+                                }
+                                st.session_state.customer_cart.append(cart_item)
+                            
+                            st.success(f"Added {qty}x {item['name']} to cart!")
+                            st.rerun()
                         else:
-                            cart_item = {
-                                'id': item['id'],
-                                'name': item['name'],
-                                'price': item['price'],
-                                'quantity': qty,
-                                'subtotal': item['price'] * qty
-                            }
-                            st.session_state.customer_cart.append(cart_item)
-                        
-                        st.success(f"Added {qty}x {item['name']} to cart!")
-                        st.rerun()
-                    else:
-                        st.warning("Please select a quantity first")
+                            st.warning("Please select a quantity first")
 
     # Shopping Cart Display
     if st.session_state.customer_cart:
@@ -985,12 +1030,46 @@ def main():
     st.set_page_config(page_title="Cafe System", page_icon="☕", layout="centered")
 
     # Check if this is a customer menu request
-    if st.query_params.get("p", [None])[0] == "menu":
-        customer_menu()
-        return
+    try:
+        # Handle different ways Streamlit might store query params
+        query_params = st.experimental_get_query_params() if hasattr(st, 'experimental_get_query_params') else {}
+        if not query_params:
+            # Try newer method
+            try:
+                query_params = dict(st.query_params)
+            except:
+                query_params = {}
+        
+        # Check for menu parameter
+        page_param = query_params.get("p", [""])[0] if isinstance(query_params.get("p"), list) else query_params.get("p", "")
+        
+        if page_param == "menu":
+            customer_menu()
+            return
+    except Exception as e:
+        # If query params fail, check URL manually
+        pass
 
     # Staff back-office login and management
     if not st.session_state.get("logged_in", False):
+        # Add a quick menu access button for testing
+        st.markdown("---")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🍽️ View Customer Menu (Test)", key="test_menu"):
+                st.session_state['show_customer_menu'] = True
+                st.rerun()
+        with col2:
+            st.write("👆 Click to test customer menu without QR code")
+        
+        # Show customer menu if requested
+        if st.session_state.get('show_customer_menu', False):
+            customer_menu()
+            if st.button("← Back to Login"):
+                st.session_state['show_customer_menu'] = False
+                st.rerun()
+            return
+            
         login_page()
         return
 
