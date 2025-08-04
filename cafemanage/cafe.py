@@ -533,21 +533,89 @@ def sales_analytics_page():
     for item_name, qty in sorted(item_sales.items(), key=lambda x: x[1], reverse=True)[:10]:
         st.write(f"{item_name}: {qty} units sold")
 
+# ------------------------------------------------------------------
+#  QR Code Generator  (drop-in replacement – no other code touched)
+# ------------------------------------------------------------------
 def qr_generator_page():
-    st.header("📱 QR Code Generator")
-    settings = load_json(SETTINGS_FILE) or {}
-    cafe_url = st.text_input("Cafe Menu URL", value=settings.get('barcode_url', 'https://mycafe.com/menu'))
-    if st.button("Generate QR Code"):
-        try:
-            qr_buffer = generate_menu_qr(cafe_url)
-            st.image(qr_buffer, caption="Menu QR Code", width=300)
-            qr_buffer.seek(0)
-            st.download_button("Download QR Code", qr_buffer.getvalue(), file_name="menu_qr_code.png", mime="image/png")
-            settings['barcode_url'] = cafe_url
-            save_json(SETTINGS_FILE, settings)
-        except Exception as e:
-            st.error(f"QR code generation failed: {e}")
+    import zipfile
+    from datetime import datetime
 
+    st.header("📱 QR Code Generator")
+
+    settings = load_json(SETTINGS_FILE) or {}
+    base_url = st.text_input(
+        "Base menu URL for QR codes",
+        value=settings.get('barcode_url', 'https://mycafe.com/menu')
+    ).rstrip("/")
+
+    # ----------------------------------------------------------
+    # 1. Main-menu QR (original behaviour kept)
+    # ----------------------------------------------------------
+    if st.button("Generate Main-Menu QR"):
+        img_buffer = generate_menu_qr(base_url)
+        st.image(img_buffer, caption="Main Menu QR", width=300)
+        img_buffer.seek(0)
+        st.download_button(
+            label="⬇️ Download Main-Menu QR",
+            data=img_buffer.getvalue(),
+            file_name="main_menu_qr.png",
+            mime="image/png"
+        )
+
+    st.markdown("---")
+
+    # ----------------------------------------------------------
+    # 2. Table-specific QRs  (NEW FEATURE)
+    # ----------------------------------------------------------
+    tables = load_json(TABLES_FILE) or []
+    if not tables:
+        st.warning("No tables found. Add tables first.")
+        return
+
+    st.subheader("Table-Specific QR Codes")
+    st.write("Each code opens the menu with the table number pre-filled.")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # add the main-menu QR
+        main_qr = generate_menu_qr(base_url)
+        zf.writestr("main_menu_qr.png", main_qr.getvalue())
+
+        # add one QR per table
+        for tbl in tables:
+            table_no = tbl["table_number"]
+            table_url = f"{base_url}?table={table_no}"  # adjust param if required
+            qr_buff = generate_menu_qr(table_url)
+            file_name = f"table_{table_no}_qr.png"
+            zf.writestr(file_name, qr_buff.getvalue())
+
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.image(qr_buff, width=150)
+            with col2:
+                st.download_button(
+                    label=f"⬇️ Table {table_no}",
+                    data=qr_buff.getvalue(),
+                    file_name=file_name,
+                    mime="image/png",
+                    key=f"dl_{table_no}"
+                )
+
+    # ----------------------------------------------------------
+    # 3. Bulk download button  (NEW FEATURE)
+    # ----------------------------------------------------------
+    st.markdown("---")
+    zip_buffer.seek(0)
+    st.download_button(
+        label="⬇️ Download ALL QR Codes (ZIP)",
+        data=zip_buffer.read(),
+        file_name=f"cafe_qrs_{datetime.now():%Y%m%d_%H%M%S}.zip",
+        mime="application/zip"
+    )
+
+    # persist the base url back to settings
+    settings['barcode_url'] = base_url
+    save_json(SETTINGS_FILE, settings)
 def settings_page():
     st.header("⚙️ Settings")
 
