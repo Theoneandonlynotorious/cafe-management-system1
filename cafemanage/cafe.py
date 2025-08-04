@@ -96,17 +96,44 @@ def authenticate(username, password):
             return user
     return None
 
-# --- QR Code generation ---
+# --- FIXED: QR Code generation ---
 
 def generate_menu_qr(cafe_url):
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(cafe_url)
-    qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white")
-    img_buffer = io.BytesIO()
-    qr_img.save(img_buffer, format='PNG')
-    img_buffer.seek(0)
-    return img_buffer
+    """Generate QR code for the given URL"""
+    try:
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(cafe_url)
+        qr.make(fit=True)
+        
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        img_buffer = io.BytesIO()
+        qr_img.save(img_buffer, format='PNG')
+        img_buffer.seek(0)
+        return img_buffer
+    except Exception as e:
+        st.error(f"Error generating QR code: {e}")
+        return None
+
+# --- FIXED: Query parameter handling ---
+
+def get_query_params():
+    """Get query parameters in a compatible way"""
+    try:
+        # Try the new method first
+        return dict(st.query_params)
+    except (AttributeError, TypeError):
+        try:
+            # Fallback to experimental method
+            params = st.experimental_get_query_params()
+            # Convert list values to single values
+            return {k: v[0] if isinstance(v, list) and v else v for k, v in params.items()}
+        except (AttributeError, TypeError):
+            return {}
 
 # --- Initialize ---
 
@@ -225,7 +252,6 @@ def menu_management_page():
                     menu_data[item_type].append(new_item)
                     save_json(MENU_FILE, menu_data)
                     st.success(f"Added {item_name} to menu!")
-                    #st.experimental_rerun()
                 else:
                     st.error("Please fill all fields.")
 
@@ -275,6 +301,7 @@ def menu_management_page():
                     save_json(MENU_FILE, menu_data)
                     st.success("Item deleted.")
                     st.rerun() 
+
 def table_management_page():
     st.header("🪑 Table Management")
     tables = load_json(TABLES_FILE) or []
@@ -523,7 +550,7 @@ def sales_analytics_page():
         st.write(f"{item_name}: {qty} units sold")
 
 # ------------------------------------------------------------------
-#  QR Code Generator  (drop-in replacement – no other code touched)
+#  FIXED: QR Code Generator
 # ------------------------------------------------------------------
 def qr_generator_page():
     import zipfile
@@ -533,13 +560,12 @@ def qr_generator_page():
 
     settings = load_json(SETTINGS_FILE) or {}
     
-    # Get the current app URL - for local testing, use localhost
+    # FIXED: Get the current app URL properly
     try:
-        # Try to detect if running locally
-        import socket
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-        current_url = f"http://localhost:8501"  # Default for Streamlit
+        # For local development, use localhost with correct port
+        current_url = "http://localhost:8501"
+        # For production, you might want to use the actual domain
+        # current_url = "https://yourdomain.com"
     except:
         current_url = "http://localhost:8501"
     
@@ -553,88 +579,127 @@ def qr_generator_page():
     ).rstrip("/")
     
     # Show example URLs
-    st.info(f"Main menu URL: {base_url}")
-    st.info(f"Table 1 URL example: {base_url}?table=1")
+    st.info(f"📱 Main menu URL: `{base_url}`")
+    st.info(f"🪑 Table 1 URL example: `{base_url}?table=1`")
 
-    # Test button for the menu
+    # Test buttons for the menu
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🧪 Test Menu URL"):
-            st.markdown(f"[Click here to test menu]({base_url})")
+            st.markdown(f"[Click to test menu →]({base_url})", unsafe_allow_html=True)
     with col2:
         if st.button("🧪 Test with Table 1"):
-            st.markdown(f"[Click here to test Table 1]({base_url}?table=1)")
-
-    # ----------------------------------------------------------
-    # 1. Main-menu QR (original behaviour kept)
-    # ----------------------------------------------------------
-    if st.button("Generate Main-Menu QR"):
-        img_buffer = generate_menu_qr(base_url)
-        st.image(img_buffer, caption="Main Menu QR", width=300)
-        img_buffer.seek(0)
-        st.download_button(
-            label="⬇️ Download Main-Menu QR",
-            data=img_buffer.getvalue(),
-            file_name="main_menu_qr.png",
-            mime="image/png"
-        )
+            st.markdown(f"[Click to test Table 1 →]({base_url}?table=1)", unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ----------------------------------------------------------
-    # 2. Table-specific QRs  (NEW FEATURE)
+    # 1. FIXED: Main-menu QR generation
+    # ----------------------------------------------------------
+    if st.button("Generate Main-Menu QR"):
+        with st.spinner("Generating QR code..."):
+            img_buffer = generate_menu_qr(base_url)
+            if img_buffer:
+                st.success("✅ QR Code generated successfully!")
+                
+                col1, col2 = st.columns([1, 1])
+                with col1:
+                    st.image(img_buffer, caption="Main Menu QR Code", width=300)
+                with col2:
+                    st.info("📱 **Instructions:**\n1. Download the QR code\n2. Print and display it\n3. Customers scan to access menu")
+                
+                img_buffer.seek(0)
+                st.download_button(
+                    label="⬇️ Download Main-Menu QR",
+                    data=img_buffer.getvalue(),
+                    file_name="main_menu_qr.png",
+                    mime="image/png"
+                )
+            else:
+                st.error("❌ Failed to generate QR code. Please check if qrcode library is installed.")
+
+    st.markdown("---")
+
+    # ----------------------------------------------------------
+    # 2. FIXED: Table-specific QRs
     # ----------------------------------------------------------
     tables = load_json(TABLES_FILE) or []
     if not tables:
-        st.warning("No tables found. Add tables first.")
+        st.warning("⚠️ No tables found. Please add tables in Table Management first.")
         return
 
-    st.subheader("Table-Specific QR Codes")
-    st.write("Each code opens the menu with the table number pre-filled.")
+    st.subheader("🪑 Table-Specific QR Codes")
+    st.write("Each QR code opens the menu with the table number pre-filled for easier ordering.")
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        # add the main-menu QR
-        main_qr = generate_menu_qr(base_url)
-        zf.writestr("main_menu_qr.png", main_qr.getvalue())
+    # Generate table QR codes
+    if st.button("Generate All Table QR Codes"):
+        with st.spinner("Generating QR codes for all tables..."):
+            success_count = 0
+            zip_buffer = io.BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                # Add the main-menu QR
+                try:
+                    main_qr = generate_menu_qr(base_url)
+                    if main_qr:
+                        zf.writestr("main_menu_qr.png", main_qr.getvalue())
+                        success_count += 1
+                except Exception as e:
+                    st.error(f"Failed to generate main menu QR: {e}")
 
-        # add one QR per table
-        for tbl in tables:
-            table_no = tbl["table_number"]
-            table_url = f"{base_url}?table={table_no}"  # adjust param if required
-            qr_buff = generate_menu_qr(table_url)
-            file_name = f"table_{table_no}_qr.png"
-            zf.writestr(file_name, qr_buff.getvalue())
+                # Add one QR per table
+                for tbl in tables:
+                    try:
+                        table_no = tbl["table_number"]
+                        table_url = f"{base_url}?table={table_no}"
+                        qr_buff = generate_menu_qr(table_url)
+                        if qr_buff:
+                            file_name = f"table_{table_no}_qr.png"
+                            zf.writestr(file_name, qr_buff.getvalue())
+                            success_count += 1
+                    except Exception as e:
+                        st.error(f"Failed to generate QR for table {table_no}: {e}")
 
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                st.image(qr_buff, width=150)
-            with col2:
-                st.write(f"**Table {table_no} QR Code**")
-                st.write(f"URL: {table_url}")
+            if success_count > 0:
+                st.success(f"✅ Generated {success_count} QR codes successfully!")
+                
+                # Display individual table QR codes
+                st.subheader("Individual Table QR Codes")
+                cols = st.columns(3)  # 3 columns for better layout
+                
+                for idx, tbl in enumerate(tables[:9]):  # Show first 9 tables
+                    table_no = tbl["table_number"]
+                    table_url = f"{base_url}?table={table_no}"
+                    
+                    with cols[idx % 3]:
+                        qr_buff = generate_menu_qr(table_url)
+                        if qr_buff:
+                            st.image(qr_buff, width=150)
+                            st.write(f"**Table {table_no}**")
+                            qr_buff.seek(0)
+                            st.download_button(
+                                label=f"⬇️ Table {table_no}",
+                                data=qr_buff.getvalue(),
+                                file_name=f"table_{table_no}_qr.png",
+                                mime="image/png",
+                                key=f"dl_{table_no}"
+                            )
+                
+                # Bulk download
+                zip_buffer.seek(0)
                 st.download_button(
-                    label=f"⬇️ Download Table {table_no} QR",
-                    data=qr_buff.getvalue(),
-                    file_name=file_name,
-                    mime="image/png",
-                    key=f"dl_{table_no}"
+                    label="⬇️ Download ALL QR Codes (ZIP)",
+                    data=zip_buffer.read(),
+                    file_name=f"cafe_qrs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime="application/zip"
                 )
+            else:
+                st.error("❌ Failed to generate any QR codes. Please check your setup.")
 
-    # ----------------------------------------------------------
-    # 3. Bulk download button  (NEW FEATURE)
-    # ----------------------------------------------------------
-    st.markdown("---")
-    zip_buffer.seek(0)
-    st.download_button(
-        label="⬇️ Download ALL QR Codes (ZIP)",
-        data=zip_buffer.read(),
-        file_name=f"cafe_qrs_{datetime.now():%Y%m%d_%H%M%S}.zip",
-        mime="application/zip"
-    )
-
-    # persist the base url back to settings
-    settings['barcode_url'] = base_url
-    save_json(SETTINGS_FILE, settings)
+    # Persist the base url back to settings
+    if base_url != settings.get('barcode_url', ''):
+        settings['barcode_url'] = base_url
+        save_json(SETTINGS_FILE, settings)
 
 def settings_page():
     st.header("⚙️ Settings")
@@ -681,7 +746,7 @@ def settings_page():
                     st.rerun() 
 
 # ------------------------------------------------------------------
-#  Customer menu (no login) - Enhanced Version
+#  FIXED: Customer menu (no login) - Enhanced Version
 # ------------------------------------------------------------------
 def customer_menu():
     st.set_page_config(page_title="Our Menu", page_icon="☕", layout="wide")
@@ -761,20 +826,16 @@ def customer_menu():
     menu = load_json(MENU_FILE) or {"beverages": [], "food": []}
     settings = load_json(SETTINGS_FILE) or {}
     
-    # Get table parameter from URL
+    # FIXED: Get table parameter from URL using proper query param handling
     table = None
     try:
-        # Try different methods to get query params
-        query_params = st.experimental_get_query_params() if hasattr(st, 'experimental_get_query_params') else {}
-        if not query_params:
-            try:
-                query_params = dict(st.query_params)
-            except:
-                query_params = {}
-        
-        table_param = query_params.get("table", [""])[0] if isinstance(query_params.get("table"), list) else query_params.get("table", "")
-        table = table_param if table_param else None
-    except:
+        query_params = get_query_params()
+        table = query_params.get("table", "")
+        if table:
+            st.session_state.customer_info = st.session_state.get('customer_info', {})
+            st.session_state.customer_info['table_number'] = table
+    except Exception as e:
+        st.error(f"Error reading URL parameters: {e}")
         table = None
 
     # Header
@@ -788,9 +849,6 @@ def customer_menu():
 
     if table:
         st.success(f"🪑 **Ordering for Table {table}**")
-        if 'customer_info' not in st.session_state:
-            st.session_state.customer_info = {}
-        st.session_state.customer_info['table_number'] = table
 
     # Initialize customer session states if not exists
     if 'customer_cart' not in st.session_state:
@@ -798,11 +856,18 @@ def customer_menu():
     if 'customer_info' not in st.session_state:
         st.session_state.customer_info = {}
 
-    # Debug info (remove this after testing)
-    st.sidebar.write("Debug Info:")
-    st.sidebar.write(f"Menu items loaded: {len(menu.get('beverages', [])) + len(menu.get('food', []))}")
-    st.sidebar.write(f"Table: {table}")
-    st.sidebar.write(f"Cart items: {len(st.session_state.customer_cart)}")
+    # Debug info in sidebar for testing
+    with st.sidebar:
+        st.write("🔧 **Debug Info:**")
+        st.write(f"Menu items loaded: {len(menu.get('beverages', [])) + len(menu.get('food', []))}")
+        st.write(f"Table: {table if table else 'None'}")
+        st.write(f"Cart items: {len(st.session_state.customer_cart)}")
+        
+        # Quick test buttons
+        if st.button("🧪 Test Main Menu"):
+            st.write("URL: /?p=menu")
+        if st.button("🧪 Test Table 1"):
+            st.write("URL: /?p=menu&table=1")
 
     # Customer Information Form
     with st.expander("📝 Your Information", expanded=not bool(st.session_state.customer_info.get('name'))):
@@ -822,7 +887,7 @@ def customer_menu():
                     'name': customer_name,
                     'phone': customer_phone
                 })
-                st.success("Information saved!")
+                st.success("✅ Information saved!")
                 st.rerun()
             else:
                 st.error("Please enter your name")
@@ -831,13 +896,13 @@ def customer_menu():
     all_items = []
     for section_name, items in menu.items():
         for item in items:
-            if item.get('available', True):  # Remove inventory check for testing
+            if item.get('available', True):
                 item['section'] = section_name
                 all_items.append(item)
 
     if not all_items:
-        st.warning("Sorry, no items are currently available.")
-        st.write("Menu data:", menu)  # Debug info
+        st.warning("⚠️ Sorry, no items are currently available.")
+        st.info("Please contact staff for assistance.")
         return
 
     # Group items by category for better organization
@@ -893,6 +958,7 @@ def customer_menu():
                             if existing_item:
                                 existing_item['quantity'] += qty
                                 existing_item['subtotal'] = existing_item['quantity'] * existing_item['price']
+                                st.success(f"✅ Updated {item['name']} in cart!")
                             else:
                                 cart_item = {
                                     'id': item['id'],
@@ -902,11 +968,10 @@ def customer_menu():
                                     'subtotal': item['price'] * qty
                                 }
                                 st.session_state.customer_cart.append(cart_item)
-                            
-                            st.success(f"Added {qty}x {item['name']} to cart!")
+                                st.success(f"✅ Added {qty}x {item['name']} to cart!")
                             st.rerun()
                         else:
-                            st.warning("Please select a quantity first")
+                            st.warning("⚠️ Please select a quantity first")
 
     # Shopping Cart Display
     if st.session_state.customer_cart:
@@ -943,7 +1008,6 @@ def customer_menu():
             st.rerun()
         
         # Calculate totals
-        settings = load_json(SETTINGS_FILE) or {}
         tax_rate = settings.get('tax_rate', 0.10)
         service_charge = settings.get('service_charge', 0.05)
         
@@ -999,8 +1063,8 @@ def customer_menu():
                 orders_data.append(new_order)
                 save_json(ORDERS_FILE, orders_data)
                 
-                st.success(f"🎉 Order placed successfully! Order ID: **{new_order['id']}**")
-                st.info("Please show this Order ID to the staff for payment and collection.")
+                st.success(f"🎉 Order placed successfully!")
+                st.info(f"**Order ID: {new_order['id']}**\n\nPlease show this Order ID to the staff for payment and collection.")
                 
                 # Clear cart and customer info for next customer
                 st.session_state.customer_cart = []
@@ -1008,59 +1072,49 @@ def customer_menu():
                 if table:
                     st.session_state.customer_info['table_number'] = table
                 
-                # Auto-refresh after 3 seconds
+                # Show success message for a few seconds
+                st.balloons()
                 import time
-                with st.empty():
-                    for i in range(3, 0, -1):
-                        st.info(f"Page will refresh in {i} seconds...")
-                        time.sleep(1)
+                time.sleep(2)
                 st.rerun()
         else:
-            st.warning("Please enter your information above before placing the order.")
+            st.warning("⚠️ Please enter your information above before placing the order.")
             
         # Clear cart button
         if st.button("🗑️ Clear Cart"):
             st.session_state.customer_cart = []
             st.rerun()
     else:
-        st.info("Your cart is empty. Add some items from the menu above!")
+        st.info("🛒 Your cart is empty. Add some items from the menu above!")
 
-# --- Main driver function ---
+# --- FIXED: Main driver function ---
 def main():
     st.set_page_config(page_title="Cafe System", page_icon="☕", layout="centered")
 
-    # Check if this is a customer menu request
+    # FIXED: Check if this is a customer menu request using proper query param handling
     try:
-        # Handle different ways Streamlit might store query params
-        query_params = st.query_params if hasattr(st, 'query_params') else {}
-        if not query_params:
-            # Try newer method
-            try:
-                query_params = dict(st.query_params)
-            except:
-                query_params = {}
-        
-        # Check for menu parameter
-        page_param = query_params.get("p", [""])[0] if isinstance(query_params.get("p"), list) else query_params.get("p", "")
+        query_params = get_query_params()
+        page_param = query_params.get("p", "")
         
         if page_param == "menu":
             customer_menu()
             return
     except Exception as e:
-        # If query params fail, check URL manually
+        # If query params fail, continue with normal flow
         pass
 
     # Staff back-office login and management
     if not st.session_state.get("logged_in", False):
         # Add a quick menu access button for testing
         st.markdown("---")
+        st.info("🧪 **Testing Zone**")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🍽️ View Customer Menu (Test)", key="test_menu"):
                 st.session_state['show_customer_menu'] = True
                 st.rerun()
         with col2:
-            st.write("👆 Click to test customer menu without QR code")
+            st.markdown("[Test Menu URL →](/?p=menu)")
         
         # Show customer menu if requested
         if st.session_state.get('show_customer_menu', False):
@@ -1104,4 +1158,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
