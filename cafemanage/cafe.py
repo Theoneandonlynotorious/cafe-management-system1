@@ -596,13 +596,16 @@ def settings_page():
 def main():
     st.set_page_config(page_title="Cafe Management System", page_icon="☕", layout="wide")
 
-    if not st.session_state['logged_in']:
+    # Assume session_state['user'] is set after login with a 'role' key
+    if not st.session_state.get('logged_in'):
         login_page()
         return
 
     user = st.session_state['user']
     st.sidebar.title(f"Logged in as: {user['username']} ({user['role']})")
-    menu_options = [
+
+    # Define menu options for each role
+    admin_options = [
         "Dashboard",
         "Menu Management",
         "Order Management",
@@ -612,15 +615,30 @@ def main():
         "Settings",
         "Logout"
     ]
+    staff_options = [
+        "Dashboard",
+        "Order Management",
+        "Table Management",
+        "QR Code Generator",
+        "Logout"
+    ]
+
+    # Display correct sidebar
+    if user["role"] == "admin":
+        menu_options = admin_options
+    elif user["role"] == "staff":
+        menu_options = staff_options
+    else:
+        menu_options = ["Logout"]
+
     choice = st.sidebar.selectbox("Navigation", menu_options)
 
+    # Route to correct page
     if choice == "Logout":
         st.session_state['logged_in'] = False
         st.session_state['user'] = None
         st.session_state['cart'] = []
-        st.rerun() 
-
-
+        st.experimental_rerun()
     elif choice == "Dashboard":
         dashboard_page()
     elif choice == "Menu Management":
@@ -636,10 +654,7 @@ def main():
         else:
             st.warning("Only admin can access sales analytics.")
     elif choice == "Table Management":
-        if user['role'] == 'admin' or user['role'] == 'staff':
-            table_management_page()
-        else:
-            st.warning("Access denied.")
+        table_management_page()
     elif choice == "QR Code Generator":
         qr_generator_page()
     elif choice == "Settings":
@@ -648,6 +663,11 @@ def main():
         else:
             st.warning("Only admin can access settings.")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    if 'cart' not in st.session_state:
+        st.session_state['cart'] = []
+    if 'discount' not in st.session_state:
+        st.session_state['discount'] = 0.0
     main()
+
 
